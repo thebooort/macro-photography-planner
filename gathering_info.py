@@ -29,7 +29,13 @@ from matplotlib import pyplot as plt
 from pyinaturalist import get_observations, get_places_autocomplete
 
 def date_to_mpl_day_of_year(dt):
-    """Get a matplotlib-compatible date number, ignoring the year (to represent day of year)"""
+    """Get a matplotlib-compatible date number, ignoring the year (to represent day of year)
+    Args:
+        dt (datetime): date
+
+    Returns:
+        datetime: formated date
+    """    
     try:
         return dates.date2num(dt.replace(year=datetime.now().year))
     except ValueError:
@@ -38,7 +44,7 @@ def date_to_mpl_day_of_year(dt):
 def date_to_mpl_time(dt):
     """Get a matplotlib-compatible date number, ignoring the date (to represent time of day)"""
     try:
-        return date_to_num(dt) % 1
+        return dates.date2num(dt) % 1
     except ValueError:
         return None
 
@@ -91,14 +97,44 @@ def get_observations_data(place_id=30001, taxon_number = None):
     print("Found {n_obs} observations".format(n_obs=len(observations['results'])))
     observations_dataframe = pd.json_normalize(observations['results'])
 
-    return observations_json, observations_dataframe
+    # cleaning for ploting
+    observations_dataframe['observed_on'] = observations_dataframe['observed_on'].dropna().apply(to_local_tz)
+    observations_dataframe['observed_time_mp'] = observations_dataframe['observed_on'].apply(date_to_mpl_time)
+    observations_dataframe['observed_on_mp'] = observations_dataframe['observed_on'].apply(date_to_mpl_day_of_year)
+    return observations['results'], observations_dataframe
 
 
 
 if __name__ == "__main__":
-    observations_json, observations_dataframe = get_observations_data()
+    taxon_number = 52775
+    observations_json, df = get_observations_data(taxon_number=taxon_number)
     # Save results for future usage
-    with open('data_spiders.json', 'w') as f:
+    with open('data_{}.json'.format(taxon_number), 'w') as f:
         json.dump(observations_json, f, indent=4, sort_keys=True, default=str)
 
+    sns.jointplot(data=df, x='observed_on_mp', y='observed_time_mp', bins=20, kind='hist')
+    grid = sns.JointGrid(data=df, x='observed_on_mp', y='observed_time_mp', height=10, dropna=True)
+    grid.ax_marg_x.set_title('Observation times of Anax Genus in Granada')
+    
+    # formatting from pynaturalist DOCS
+    # Format X axis labels & ticks
+    xaxis = grid.ax_joint.get_xaxis()
+    xaxis.label.set_text('Month')
+    xaxis.set_major_locator(dates.DayLocator(interval=30))
+    xaxis.set_major_formatter(dates.DateFormatter('%b %d'))
+    #xaxis.set_minor_locator(dates.DayLocator(interval=7))
+    #xaxis.set_minor_formatter(dates.DateFormatter('%d'))
 
+    # Format Y axis labels & ticks
+    yaxis = grid.ax_joint.get_yaxis()
+    yaxis.label.set_text('Time of Day')
+    yaxis.set_major_locator(dates.HourLocator(interval=2))
+    yaxis.set_major_formatter(dates.DateFormatter('%H:%M'))
+    #yaxis.set_minor_locator(dates.HourLocator())
+    #yaxis.set_minor_formatter(dates.DateFormatter('%H:%M'))
+
+    # Generate a joint plot with marginal plots
+    # Using the hexbin plotting function, because hexagons are the bestagons.
+    # Also because it looks just a little like butterfly scales.
+    grid.plot_joint(plt.hexbin, gridsize=30, cmap=get_colormap('lightblue'))
+    grid.plot_marginals(sns.histplot, color='lightblue', kde=False)
